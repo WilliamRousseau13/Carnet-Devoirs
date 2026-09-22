@@ -258,7 +258,6 @@
   <header>
     <h1>Carnet de devoirs</h1>
     <div class="subtitle">Ajoute un devoir avec sa matière et sa date d'échéance — l'appli te previent quand elle approche.</div>
-    <button id="testSoundBtn" type="button" style="margin-top:10px;background:none;border:1px solid var(--moss);color:var(--moss-dark);padding:6px 12px;border-radius:3px;font-size:0.82rem;cursor:pointer;font-family:'Work Sans', sans-serif;">🔊 Tester le son</button>
   </header>
 
   <div id="notifBanner" class="notif-banner">
@@ -643,11 +642,6 @@ function unlockAudioOnce(){
 document.addEventListener('click', unlockAudioOnce);
 document.addEventListener('touchstart', unlockAudioOnce);
 document.addEventListener('keydown', unlockAudioOnce);
-
-document.getElementById('testSoundBtn').addEventListener('click', () => {
-  unlockAudioOnce();
-  playNotifSound();
-});
 
 loadSubjects();
 renderSubjectSelect();
