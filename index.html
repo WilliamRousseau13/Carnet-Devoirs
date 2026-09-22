@@ -551,26 +551,57 @@ document.getElementById('addForm').addEventListener('submit', (e) => {
 });
 
 // --- Rappels ---
+const REMINDER_THRESHOLDS = [12, 8]; // heures avant l'échéance
+
+function todayStr(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+
 function checkReminders(){
   const now = new Date();
+  const today = todayStr();
+
   tasks.forEach(task => {
     if(task.done) return;
     const due = dueDateTime(task);
     const diffH = (due - now) / 3600000;
-    // rappel dans les dernières 24h avant l'échéance
-    if(diffH > 0 && diffH <= 24 && !notifiedIds.has(task.id)){
-      notifiedIds.add(task.id);
-      sendNotification(task, diffH);
+
+    // rappel le jour même de la remise (une seule fois par tâche)
+    const dayKey = task.id + '_day';
+    if(task.date === today && !notifiedIds.has(dayKey)){
+      notifiedIds.add(dayKey);
+      sendDayOfNotification(task);
     }
+
+    if(diffH <= 0) return;
+
+    // rappels à 12h et 8h avant l'échéance
+    REMINDER_THRESHOLDS.forEach(threshold => {
+      const key = task.id + '_' + threshold;
+      if(diffH <= threshold && !notifiedIds.has(key)){
+        notifiedIds.add(key);
+        sendNotification(task, threshold);
+      }
+    });
   });
 }
 
-function sendNotification(task, diffH){
-  const timeLeft = diffH < 1 ? 'moins d\u2019une heure' : Math.round(diffH) + ' h';
+function sendNotification(task, threshold){
   playNotifSound();
   if('Notification' in window && Notification.permission === 'granted'){
     new Notification('Devoir bientôt à rendre', {
-      body: task.title + (task.subject ? ' (' + task.subject + ')' : '') + ' — dans ' + timeLeft
+      body: task.title + (task.subject ? ' (' + task.subject + ')' : '') + ' — encore ' + threshold + ' h avant l\u2019échéance'
+    });
+  }
+}
+
+function sendDayOfNotification(task){
+  playNotifSound();
+  if('Notification' in window && Notification.permission === 'granted'){
+    new Notification('C\u2019est le jour de remise', {
+      body: task.title + (task.subject ? ' (' + task.subject + ')' : '') + ' est à rendre aujourd\u2019hui'
     });
   }
 }
