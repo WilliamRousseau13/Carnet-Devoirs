@@ -147,3 +147,514 @@
     font-size:0.82rem;
     font-family:'Work Sans', sans-serif;
     cursor:pointer;
+    white-space:nowrap;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .tab-btn.active{
+    background:var(--moss);
+    border-color:var(--moss);
+    color:#fff;
+  }
+
+  .section-label{
+    font-size:0.78rem;
+    text-transform:none;
+    color:var(--moss-dark);
+    margin: 28px 0 10px;
+    border-bottom:1px solid var(--line);
+    padding-bottom:6px;
+  }
+
+  .task{
+    display:flex;
+    align-items:flex-start;
+    gap:12px;
+    padding:14px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .task.done{ opacity:0.45; }
+  .task.done .task-title{ text-decoration: line-through; }
+
+  .check{
+    width:20px; height:20px;
+    border:1.5px solid var(--moss);
+    border-radius:50%;
+    background:#fff;
+    cursor:pointer;
+    flex-shrink:0;
+    margin-top:2px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#fff;
+    font-size:12px;
+  }
+  .task.done .check{ background:var(--moss); }
+
+  .task-body{ flex:1; min-width:0; }
+  .task-title{
+    font-size:1rem;
+    margin-bottom:3px;
+    word-break:break-word;
+  }
+  .task-meta{
+    font-size:0.8rem;
+    color:var(--moss-dark);
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .subject-tag{
+    font-size:0.72rem;
+    padding:2px 8px;
+    border-radius:10px;
+    background:var(--paper-2);
+    color:var(--moss-dark);
+  }
+  .badge{
+    font-size:0.72rem;
+    padding:2px 8px;
+    border-radius:10px;
+    border:1px solid currentColor;
+  }
+  .badge.overdue{ color:var(--danger); }
+  .badge.soon{ color:var(--amber); }
+  .badge.ok{ color:var(--moss); }
+
+  .remove-btn{
+    background:none;
+    border:none;
+    color:var(--ink);
+    opacity:0.35;
+    cursor:pointer;
+    font-size:1.1rem;
+    line-height:1;
+    padding:2px 6px;
+    flex-shrink:0;
+  }
+  .remove-btn:hover{ opacity:0.8; color:var(--danger); }
+
+  .empty{
+    padding:30px 4px;
+    color:var(--moss-dark);
+    opacity:0.7;
+    font-size:0.92rem;
+  }
+
+  .loading{
+    padding:20px 4px;
+    color:var(--moss-dark);
+    font-size:0.9rem;
+  }
+
+  @media (max-width:520px){
+    .add-form{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Carnet de devoirs</h1>
+    <div class="subtitle">Ajoute un devoir avec sa matière et sa date d'échéance — l'appli te previent quand elle approche.</div>
+    <button id="testSoundBtn" type="button" style="margin-top:10px;background:none;border:1px solid var(--moss);color:var(--moss-dark);padding:6px 12px;border-radius:3px;font-size:0.82rem;cursor:pointer;font-family:'Work Sans', sans-serif;">🔊 Tester le son</button>
+  </header>
+
+  <div id="notifBanner" class="notif-banner">
+    <span>Active les notifications (avec son) pour recevoir un rappel même si tu n'as pas cet onglet ouvert.</span>
+    <button id="enableNotif">Activer</button>
+  </div>
+
+  <form class="add-form" id="addForm">
+    <input type="text" id="titleInput" placeholder="Nom du devoir (ex. Dissertation d'histoire)" required>
+
+    <div class="field">
+      <label for="subjectInput">Matière</label>
+      <select id="subjectInput"></select>
+    </div>
+
+    <div class="field">
+      <label for="dateInput">Date d'échéance</label>
+      <input type="date" id="dateInput" required>
+    </div>
+
+    <div class="field full">
+      <label for="timeInput">Heure (optionnel)</label>
+      <input type="time" id="timeInput">
+      <div class="hint">Sans heure précisée, le devoir doit être prêt dès le début de cette date (00h00).</div>
+    </div>
+
+    <button type="submit">Ajouter le devoir</button>
+  </form>
+
+  <div id="subjectTabs" class="subject-tabs"></div>
+
+  <div id="loading" class="loading">Chargement de tes devoirs…</div>
+  <div id="listContainer" style="display:none;">
+    <div class="section-label">À faire</div>
+    <div id="pendingList"></div>
+    <div class="section-label">Terminés</div>
+    <div id="doneList"></div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'homework-tasks';
+const SUBJECTS_KEY = 'homework-subjects';
+const DEFAULT_SUBJECTS = ['Hockey sur glace mixte','Stress en santé','Introduction à la profession','Ordinateurs et systèmes d\'exploitation','Programmation structurée','Interface Web','Bureautique pour informaticien','Français 100','Autre'];
+
+let tasks = [];
+let subjects = [];
+let notifiedIds = new Set();
+let activeFilter = 'Toutes';
+
+// ---------- Son de notification ----------
+let audioCtx = null;
+function playNotifSound(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    // deux petites notes pour un son de rappel reconnaissable
+    [0, 0.16].forEach((offset, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = i === 0 ? 880 : 1175;
+      gain.gain.setValueAtTime(0, now + offset);
+      gain.gain.linearRampToValueAtTime(0.25, now + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.28);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.3);
+    });
+  }catch(e){
+    console.error('Son indisponible', e);
+  }
+}
+
+// ---------- Matières ----------
+function loadSubjects(){
+  const OLD_DEFAULTS = ['Maths','Français','Histoire-Géo','SVT','Physique-Chimie','Anglais','Espagnol','EPS','Autre'];
+  try{
+    const raw = localStorage.getItem(SUBJECTS_KEY);
+    subjects = raw ? JSON.parse(raw) : [...DEFAULT_SUBJECTS];
+    // si l'ancienne liste par défaut était enregistrée telle quelle, on la remplace par la nouvelle
+    if(JSON.stringify(subjects) === JSON.stringify(OLD_DEFAULTS)){
+      subjects = [...DEFAULT_SUBJECTS];
+      saveSubjects();
+    }
+  }catch(e){
+    subjects = [...DEFAULT_SUBJECTS];
+  }
+}
+function saveSubjects(){
+  try{ localStorage.setItem(SUBJECTS_KEY, JSON.stringify(subjects)); }
+  catch(e){ console.error('Erreur de sauvegarde des matières', e); }
+}
+function renderSubjectSelect(){
+  const sel = document.getElementById('subjectInput');
+  sel.innerHTML = '';
+  subjects.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = s;
+    sel.appendChild(opt);
+  });
+  const addOpt = document.createElement('option');
+  addOpt.value = '__add__';
+  addOpt.textContent = '+ Ajouter une matière…';
+  sel.appendChild(addOpt);
+}
+document.addEventListener('change', (e) => {
+  if(e.target && e.target.id === 'subjectInput' && e.target.value === '__add__'){
+    const name = prompt('Nom de la nouvelle matière :');
+    if(name && name.trim()){
+      const clean = name.trim();
+      if(!subjects.includes(clean)){
+        subjects.splice(subjects.length - 1, 0, clean); // avant "Autre"
+        saveSubjects();
+      }
+      renderSubjectSelect();
+      document.getElementById('subjectInput').value = clean;
+    } else {
+      renderSubjectSelect();
+    }
+  }
+});
+
+// ---------- Tâches ----------
+async function loadTasks(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    tasks = raw ? JSON.parse(raw) : [];
+  }catch(e){
+    tasks = [];
+  }
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('listContainer').style.display = 'block';
+  render();
+}
+async function saveTasks(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  }catch(e){
+    console.error('Erreur de sauvegarde', e);
+  }
+}
+
+// Sans heure précisée -> le devoir doit être prêt dès le début de la journée indiquée (00h00)
+function dueDateTime(task){
+  return new Date(task.date + 'T' + (task.time || '00:00:00'));
+}
+
+function formatRelative(due){
+  const now = new Date();
+  const diffMs = due - now;
+  const diffH = diffMs / 3600000;
+  if(diffMs < 0) return {label:'En retard', cls:'overdue'};
+  if(diffH <= 24) return {label:'Aujourd\u2019hui / demain', cls:'soon'};
+  if(diffH <= 72) return {label:'Dans ' + Math.ceil(diffH/24) + ' j', cls:'soon'};
+  const days = Math.ceil(diffH/24);
+  return {label:'Dans ' + days + ' j', cls:'ok'};
+}
+
+function formatDate(task){
+  const d = dueDateTime(task);
+  const opts = {day:'numeric', month:'long'};
+  let str = d.toLocaleDateString('fr-FR', opts);
+  if(task.time) str += ' à ' + task.time;
+  else str += ' (dès 00h00)';
+  return str;
+}
+
+function renderSubjectTabs(){
+  const container = document.getElementById('subjectTabs');
+  container.innerHTML = '';
+  const used = Array.from(new Set(tasks.map(t => t.subject).filter(Boolean)));
+  const tabs = ['Toutes', ...used];
+
+  if(used.length === 0){ container.style.display = 'none'; return; }
+  container.style.display = 'flex';
+
+  tabs.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn' + (s === activeFilter ? ' active' : '');
+    btn.textContent = s;
+    btn.onclick = () => { activeFilter = s; render(); };
+    container.appendChild(btn);
+  });
+}
+
+function render(){
+  renderSubjectTabs();
+
+  const pendingList = document.getElementById('pendingList');
+  const doneList = document.getElementById('doneList');
+  pendingList.innerHTML = '';
+  doneList.innerHTML = '';
+
+  const filtered = activeFilter === 'Toutes' ? tasks : tasks.filter(t => t.subject === activeFilter);
+  const sorted = [...filtered].sort((a,b) => dueDateTime(a) - dueDateTime(b));
+  const pending = sorted.filter(t => !t.done);
+  const done = sorted.filter(t => t.done);
+
+  if(pending.length === 0){
+    pendingList.innerHTML = '<div class="empty">Rien à faire pour l\u2019instant.</div>';
+  }
+  pending.forEach(t => pendingList.appendChild(renderTask(t)));
+
+  if(done.length === 0){
+    doneList.innerHTML = '<div class="empty">Aucun devoir terminé pour le moment.</div>';
+  }
+  done.forEach(t => doneList.appendChild(renderTask(t)));
+}
+
+function renderTask(task){
+  const el = document.createElement('div');
+  el.className = 'task' + (task.done ? ' done' : '');
+
+  const check = document.createElement('div');
+  check.className = 'check';
+  check.textContent = task.done ? '✓' : '';
+  check.onclick = () => toggleDone(task.id);
+
+  const body = document.createElement('div');
+  body.className = 'task-body';
+
+  const title = document.createElement('div');
+  title.className = 'task-title';
+  title.textContent = task.title;
+
+  const meta = document.createElement('div');
+  meta.className = 'task-meta';
+
+  if(task.subject){
+    const subj = document.createElement('span');
+    subj.className = 'subject-tag';
+    subj.textContent = task.subject;
+    meta.appendChild(subj);
+  }
+
+  const dateSpan = document.createElement('span');
+  dateSpan.textContent = formatDate(task);
+  meta.appendChild(dateSpan);
+
+  if(!task.done){
+    const rel = formatRelative(dueDateTime(task));
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + rel.cls;
+    badge.textContent = rel.label;
+    meta.appendChild(badge);
+  }
+
+  body.appendChild(title);
+  body.appendChild(meta);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'remove-btn';
+  removeBtn.textContent = '×';
+  removeBtn.title = 'Supprimer';
+  removeBtn.onclick = () => removeTask(task.id);
+
+  el.appendChild(check);
+  el.appendChild(body);
+  el.appendChild(removeBtn);
+  return el;
+}
+
+function toggleDone(id){
+  const t = tasks.find(t => t.id === id);
+  if(t){ t.done = !t.done; saveTasks(); render(); }
+}
+
+function removeTask(id){
+  tasks = tasks.filter(t => t.id !== id);
+  saveTasks(); render();
+}
+
+document.getElementById('addForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const title = document.getElementById('titleInput').value.trim();
+  const subject = document.getElementById('subjectInput').value;
+  const date = document.getElementById('dateInput').value;
+  const time = document.getElementById('timeInput').value;
+  if(!title || !date || subject === '__add__') return;
+  tasks.push({
+    id: 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    title, subject, date, time, done:false
+  });
+  saveTasks();
+  render();
+  e.target.reset();
+  renderSubjectSelect();
+});
+
+// --- Rappels ---
+const REMINDER_THRESHOLDS = [12, 8]; // heures avant l'échéance
+
+function todayStr(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+
+function checkReminders(){
+  const now = new Date();
+  const today = todayStr();
+
+  tasks.forEach(task => {
+    if(task.done) return;
+    const due = dueDateTime(task);
+    const diffH = (due - now) / 3600000;
+
+    // rappel le jour même de la remise (une seule fois par tâche)
+    const dayKey = task.id + '_day';
+    if(task.date === today && !notifiedIds.has(dayKey)){
+      notifiedIds.add(dayKey);
+      sendDayOfNotification(task);
+    }
+
+    if(diffH <= 0) return;
+
+    // rappels à 12h et 8h avant l'échéance
+    REMINDER_THRESHOLDS.forEach(threshold => {
+      const key = task.id + '_' + threshold;
+      if(diffH <= threshold && !notifiedIds.has(key)){
+        notifiedIds.add(key);
+        sendNotification(task, threshold, diffH);
+      }
+    });
+  });
+}
+
+function sendNotification(task, threshold, diffH){
+  playNotifSound();
+  const hoursLeft = Math.max(0, Math.round(diffH));
+  const timeLeft = hoursLeft <= 1 ? 'moins d\u2019une heure' : hoursLeft + ' h';
+  if('Notification' in window && Notification.permission === 'granted'){
+    new Notification('Devoir bientôt à rendre', {
+      body: task.title + (task.subject ? ' (' + task.subject + ')' : '') + ' — encore ' + timeLeft + ' avant l\u2019échéance'
+    });
+  }
+}
+
+function sendDayOfNotification(task){
+  playNotifSound();
+  if('Notification' in window && Notification.permission === 'granted'){
+    new Notification('C\u2019est le jour de remise', {
+      body: task.title + (task.subject ? ' (' + task.subject + ')' : '') + ' est à rendre aujourd\u2019hui'
+    });
+  }
+}
+
+// bandeau d'activation des notifications
+function setupNotifBanner(){
+  const banner = document.getElementById('notifBanner');
+  if('Notification' in window && Notification.permission === 'default'){
+    banner.style.display = 'flex';
+  }
+  document.getElementById('enableNotif').onclick = () => {
+    // débloque le contexte audio suite à une interaction utilisateur
+    try{
+      if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+    }catch(e){}
+    if('Notification' in window){
+      Notification.requestPermission().then(() => {
+        banner.style.display = 'none';
+        playNotifSound();
+      });
+    }
+  };
+}
+
+// débloque le son dès la première interaction, où qu'elle ait lieu sur la page
+function unlockAudioOnce(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+  }catch(e){}
+  document.removeEventListener('click', unlockAudioOnce);
+  document.removeEventListener('touchstart', unlockAudioOnce);
+  document.removeEventListener('keydown', unlockAudioOnce);
+}
+document.addEventListener('click', unlockAudioOnce);
+document.addEventListener('touchstart', unlockAudioOnce);
+document.addEventListener('keydown', unlockAudioOnce);
+
+document.getElementById('testSoundBtn').addEventListener('click', () => {
+  unlockAudioOnce();
+  playNotifSound();
+});
+
+loadSubjects();
+renderSubjectSelect();
+setupNotifBanner();
+loadTasks();
+setInterval(checkReminders, 60000);
+setInterval(render, 60000);
+</script>
+</body>
+</html>
